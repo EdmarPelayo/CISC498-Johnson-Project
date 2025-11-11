@@ -1,0 +1,79 @@
+    function tests = test_C_sparse
+    % Unit tests for C_sparse.m
+        tests = functiontests(localfunctions);
+    end
+    
+    %% --- Test 1: Basic 2D mask ---
+    function test2DMaskBasic(testCase)
+        mask = logical([1 1 1; 1 1 1; 1 1 1]);
+        [C, wt] = C_sparse(mask);
+    
+        % Verify dimensions
+        verifyEqual(testCase, size(wt,1), size(C,1));
+        verifyEqual(testCase, size(C,2), numel(mask));
+    
+        % Verify type
+        verifyTrue(testCase, issparse(C));
+    
+        % Verify no NaNs
+        verifyFalse(testCase, any(isnan(wt)));
+    
+        % Verify nonnegativity of weights
+        verifyGreaterThanOrEqual(testCase, wt, 0);
+    end
+    
+    %% --- Test 2: 3D mask ---
+    function test3DMask(testCase)
+        mask = ones(3,3,3);
+        [C, wt] = C_sparse(mask);
+    
+        % Check matrix size consistency
+        verifyEqual(testCase, size(C,2), numel(mask));
+        verifyEqual(testCase, size(wt,1), size(C,1));
+    
+        % Check some expected sparsity pattern
+        verifyTrue(testCase, nnz(C) < numel(C));
+    end
+    
+    %% --- Test 3: dims2penalize partially disabled ---
+    function testDimsToPenalize(testCase)
+        mask = ones(4,4);
+        dims2penalize = [1 0]; % disable y-axis penalization
+        [C, wt] = C_sparse(mask, dims2penalize);
+    
+        % Weights corresponding to disabled dims should be zero somewhere
+        verifyTrue(testCase, any(wt == 0));
+    end
+    
+    %% --- Test 4: All-zero mask ---
+    function testAllZeroMask(testCase)
+        mask = zeros(3,3);
+        [C, wt] = C_sparse(mask);
+    
+        % Expect all-zero outputs
+        verifyEqual(testCase, nnz(C), 0);
+        verifyEqual(testCase, all(wt == 0), true);
+    end
+    
+ 
+    
+    %% --- Test 5: 1D vector mask ---
+    function test1DMask(testCase)
+        mask = [1 1 1 1];
+        [C, wt] = C_sparse(mask);
+    
+        % Expect C to have (#voxels - 1) rows roughly
+        verifyTrue(testCase, size(C,1) >= length(mask)-1);
+        verifyTrue(testCase, issparse(C));
+    end
+    
+    %% --- Test 6: Check reproducibility ---
+    function testDeterministic(testCase)
+        mask = logical(randi([0 1], 4, 4));
+        [C1, wt1] = C_sparse(mask);
+        [C2, wt2] = C_sparse(mask);
+    
+        % Should produce identical results for same input
+        verifyEqual(testCase, C1, C2);
+        verifyEqual(testCase, wt1, wt2);
+    end
