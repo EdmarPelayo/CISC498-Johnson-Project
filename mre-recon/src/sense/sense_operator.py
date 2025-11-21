@@ -1,34 +1,50 @@
-# src/sense/sense_operator.py
-from __future__ import annotations
-import torch
+import numpy as np
 
-class SenseOp:
+class SenseOperator:
     """
-    Wrap A with coil sensitivities.
-    Mirrors: G = SENSE(G, senseMap_reshaped)
-    MATLAB passes [N*N, nCoils]; here use [coils, H, W].
+    SENSE encoding operator:
+        y = sum_coils( coil * image )
+        x = sum_coils( coil^H * image )
     """
-    def __init__(self, A, smaps: torch.Tensor):
+    def __init__(self, smaps):
         """
-        smaps: [coils, H, W] complex64, unit-norm preferred
+        smaps: (nx, ny, nc) coil sensitivity maps
         """
-        self.A = A
-        self.smaps = smaps
+        assert smaps.ndim == 3, "smaps must be (nx, ny, nc)"
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [H*W] complex
-        H, W = self.smaps.shape[-2:]
-        x_img = x.view(H, W)
-        y_list = []
-        for c in range(self.smaps.shape[0]):
-            y_list.append(self.A.forward((self.smaps[c] * x_img).reshape(-1)))
-        return torch.stack(y_list, dim=0)  # [coils, Nsamp]
+        self.smaps = smaps.astype(np.complex64)
+        self.nx, self.ny, self.nc = smaps.shape
+        self.n_vox = self.nx * self.ny
 
-    def adjoint(self, y: torch.Tensor) -> torch.Tensor:
-        # y: [coils, Nsamp]
-        H, W = self.smaps.shape[-2:]
-        acc = torch.zeros(H*W, dtype=y.dtype, device=y.device)
-        for c in range(self.smaps.shape[0]):
-            img_c = self.A.adjoint(y[c]).view(H, W)
-            acc += (self.smaps[c].conj() * img_c).reshape(-1)
-        return acc
+    @property
+    def shape(self):
+        """
+        Returns (n_data, n_vox).
+        """
+        return (self.n_vox * self.nc, self.n_vox)
+
+    def forward(self, x):
+        """
+        x: (n_vox,) image
+        returns (n_vox * nc,) with coil sensitivities applied
+        """
+        img = x.reshape(self.nx, self.ny)
+        out = np.zeros((self.nx, self.ny, self.nc), dtype=np.complex64)
+
+        for c in range(self.nc):
+            out[..., c] = img * self.smaps[..., c]
+
+        return out.reshape(-1)
+
+    def adjoint(self, y):
+        """
+        y: (n_vox * nc,) coil images
+        returns: (n_vox,) combined image
+        """
+        y = y.reshape(self.nx, self.ny, self.nc)
+        img = np.zeros((self.nx, self.ny), dtype=np.complex64)
+
+        for c in range(self.nc):
+            img += y[..., c] * np.conj(self.smaps[..., c])
+
+        return img.reshape(-1)
