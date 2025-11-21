@@ -2,49 +2,48 @@ import numpy as np
 
 class SenseOperator:
     """
-    SENSE encoding operator:
-        y = sum_coils( coil * image )
-        x = sum_coils( coil^H * image )
+    Pure SENSE coil multiplication operator.
+
+    forward:
+        x (ny, nx)  →  concat over coils → (ncoils * ny * nx)
+    adjoint:
+        y (ncoils * ny * nx) → coil-combined adjoint image (ny, nx)
     """
-    def __init__(self, smaps):
-        """
-        smaps: (nx, ny, nc) coil sensitivity maps
-        """
-        assert smaps.ndim == 3, "smaps must be (nx, ny, nc)"
 
-        self.smaps = smaps.astype(np.complex64)
-        self.nx, self.ny, self.nc = smaps.shape
-        self.n_vox = self.nx * self.ny
-
-    @property
-    def shape(self):
+    def __init__(self, coil_maps: np.ndarray):
         """
-        Returns (n_data, n_vox).
+        coil_maps: (ncoils, ny, nx)
         """
-        return (self.n_vox * self.nc, self.n_vox)
+        if coil_maps.ndim != 3:
+            raise ValueError("coil_maps must be shape (ncoils, ny, nx)")
 
-    def forward(self, x):
+        self.coil_maps = coil_maps.astype(np.complex64)
+        self.ncoils, self.ny, self.nx = coil_maps.shape
+        self.nvox = self.ny * self.nx
+
+        # operator shape: maps image → stacked coil images
+        self.shape = (self.ncoils * self.nvox, self.nvox)
+
+    def forward(self, x: np.ndarray):
         """
-        x: (n_vox,) image
-        returns (n_vox * nc,) with coil sensitivities applied
+        x: (ny, nx) or flattened (nvox,)
+        return: (ncoils * ny * nx,)
         """
-        img = x.reshape(self.nx, self.ny)
-        out = np.zeros((self.nx, self.ny, self.nc), dtype=np.complex64)
+        if x.ndim == 1:
+            x = x.reshape(self.ny, self.nx)
 
-        for c in range(self.nc):
-            out[..., c] = img * self.smaps[..., c]
+        # multiply each coil: (ncoils, ny, nx)
+        y = self.coil_maps * x[None, :, :]
 
-        return out.reshape(-1)
+        return y.reshape(-1)
 
-    def adjoint(self, y):
+    def adjoint(self, y: np.ndarray):
         """
-        y: (n_vox * nc,) coil images
-        returns: (n_vox,) combined image
+        y: (ncoils * ny * nx,)
+        returns: combined image (ny, nx)
         """
-        y = y.reshape(self.nx, self.ny, self.nc)
-        img = np.zeros((self.nx, self.ny), dtype=np.complex64)
+        y = y.reshape(self.ncoils, self.ny, self.nx)
 
-        for c in range(self.nc):
-            img += y[..., c] * np.conj(self.smaps[..., c])
-
-        return img.reshape(-1)
+        # sum coil-conjugate * data
+        result = np.sum(np.conj(self.coil_maps) * y, axis=0)
+        return result
