@@ -63,6 +63,7 @@ def genspivd_kim(D, N, nl=1, gamp=4.0, gslew=400.0, gts=10e-6, alphavd=4.0):
     kx = np.real(Kx)
     ky = np.real(Ky)
 
+
     g = Gx + 1j * Gy
     s = np.diff(g) / (gts * 1000.0)
     sx = np.real(s)
